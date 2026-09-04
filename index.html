@@ -164,6 +164,14 @@
             background: #991b1b;
         }
 
+        .btn-qp {
+            background: #0284c7;
+        }
+
+        .btn-qp:hover {
+            background: #0369a1;
+        }
+
         .btn-danger {
             background: var(--danger);
         }
@@ -269,6 +277,37 @@
             padding: 0.85rem 0.9rem;
             border-bottom: 1px solid var(--border);
             white-space: nowrap;
+        }
+
+        .sort-header {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            user-select: none;
+        }
+
+        .sort-btn {
+            background: #e2e8f0;
+            color: #475569;
+            border: 1px solid #cbd5e1;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.15s ease-in-out;
+            line-height: 1;
+        }
+
+        .sort-btn:hover {
+            background: #cbd5e1;
+            color: #0f172a;
+        }
+
+        .sort-btn.active {
+            background: var(--primary);
+            color: #ffffff;
+            border-color: var(--primary-hover);
         }
 
         tbody td {
@@ -541,11 +580,14 @@
             }
 
             #printable-report-card,
-            #printable-report-card * {
+            #printable-report-card *,
+            #printable-question-paper,
+            #printable-question-paper * {
                 visibility: visible;
             }
 
-            #printable-report-card {
+            #printable-report-card,
+            #printable-question-paper {
                 position: absolute;
                 left: 0;
                 top: 0;
@@ -598,10 +640,11 @@
                     <label for="ca-vis-checkbox">Visible to Students</label>
                 </div>
 
+                <button type="button" id="open-ca-modal-btn" class="btn-ca-creator">New / Edit CA</button>
+                <button type="button" id="refresh-btn" class="btn-secondary">⟳</button>
+                <button type="button" id="open-qp-modal-btn" class="btn-qp">📄</button>
                 <button type="button" id="export-excel-btn" class="btn-excel">📥 Export Excel</button>
                 <button type="button" id="export-pdf-btn" class="btn-pdf">📄 Export PDF</button>
-                <button type="button" id="open-ca-modal-btn" class="btn-ca-creator">✚ New / Edit CA</button>
-                <button type="button" id="refresh-btn" class="btn-secondary">⟳ Reload</button>
                 <button type="button" id="open-viva-modal-btn" class="btn-viva-top">★ Viva</button>
                 <button type="button" id="logout-btn" class="btn-danger" style="padding:0.55rem 0.8rem;">Logout</button>
             </div>
@@ -647,13 +690,37 @@
                     <tr>
                         <th>Sr. No.</th>
                         <th>Reg No</th>
-                        <th>Name</th>
+                        <th>
+                            <div class="sort-header">
+                                <span>Name</span>
+                                <button type="button" class="sort-btn" id="sort-btn-name"
+                                    onclick="toggleSort('name')">▲▼</button>
+                            </div>
+                        </th>
                         <th>Group &amp; Set</th>
                         <th>Questions</th>
                         <th>Uploaded Files</th>
-                        <th>Viva</th>
-                        <th>Demo</th>
-                        <th>Total Marks</th>
+                        <th>
+                            <div class="sort-header">
+                                <span>Viva</span>
+                                <button type="button" class="sort-btn" id="sort-btn-viva"
+                                    onclick="toggleSort('viva')">▲▼</button>
+                            </div>
+                        </th>
+                        <th>
+                            <div class="sort-header">
+                                <span>Demo</span>
+                                <button type="button" class="sort-btn" id="sort-btn-demo"
+                                    onclick="toggleSort('demo')">▲▼</button>
+                            </div>
+                        </th>
+                        <th>
+                            <div class="sort-header">
+                                <span>Total Marks</span>
+                                <button type="button" class="sort-btn" id="sort-btn-total"
+                                    onclick="toggleSort('total')">▲▼</button>
+                            </div>
+                        </th>
                         <th>Action</th>
                     </tr>
                 </thead>
@@ -668,6 +735,35 @@
     </div>
 
     <div id="printable-report-card" class="hidden"></div>
+    <div id="printable-question-paper" class="hidden"></div>
+
+    <!-- Download Question Paper Modal -->
+    <div id="qp-download-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <button type="button" class="close-btn" id="close-qp-modal-btn">&times;</button>
+            <h2 style="margin-bottom: 0.3rem;">Download Question Paper</h2>
+            <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 1.2rem;">Choose the question set and
+                preferred file format.</p>
+
+            <div class="form-group">
+                <label for="qp-set-select">Select Set</label>
+                <select id="qp-set-select">
+                    <option value="ALL">All Sets</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="qp-format-select">Select File Format</label>
+                <select id="qp-format-select">
+                    <option value="WORD">Word Document (.doc)</option>
+                    <option value="PDF">Print / Save as PDF (.pdf)</option>
+                </select>
+            </div>
+
+            <button type="button" id="confirm-qp-download-btn" style="width: 100%; justify-content: center;">Download
+                Paper</button>
+        </div>
+    </div>
 
     <div id="ca-modal" class="modal-overlay hidden">
         <div class="modal-box modal-box-xlarge">
@@ -756,7 +852,6 @@
         </div>
     </div>
 
-    <!-- Separate External Script with zero HTML quote conflicts -->
     <script src="admin.js"></script>
 </body>
 
