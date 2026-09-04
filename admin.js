@@ -4,6 +4,9 @@ var caRegistry = {};
 var activeCAId = "CA1";
 var allStudents = [];
 
+var currentSortColumn = "";
+var currentSortDirection = "";
+
 var loginSection = document.getElementById("login-section");
 var dashboardSection = document.getElementById("dashboard-section");
 var adminUserInput = document.getElementById("admin-user-input");
@@ -19,6 +22,14 @@ var refreshBtn = document.getElementById("refresh-btn");
 var exportExcelBtn = document.getElementById("export-excel-btn");
 var exportPdfBtn = document.getElementById("export-pdf-btn");
 var printableReportCard = document.getElementById("printable-report-card");
+
+var openQpModalBtn = document.getElementById("open-qp-modal-btn");
+var closeQpModalBtn = document.getElementById("close-qp-modal-btn");
+var qpDownloadModal = document.getElementById("qp-download-modal");
+var qpSetSelect = document.getElementById("qp-set-select");
+var qpFormatSelect = document.getElementById("qp-format-select");
+var confirmQpDownloadBtn = document.getElementById("confirm-qp-download-btn");
+var printableQuestionPaper = document.getElementById("printable-question-paper");
 
 var openCaModalBtn = document.getElementById("open-ca-modal-btn");
 var closeCaModalBtn = document.getElementById("close-ca-modal-btn");
@@ -142,6 +153,7 @@ function populateCASwitcher() {
   });
   syncCurrentCAVisibility();
   syncFilterOptions();
+  syncQpSetOptions();
   fetchActiveSheetData();
 }
 
@@ -189,10 +201,24 @@ function syncFilterOptions() {
   }
 }
 
+function syncQpSetOptions() {
+  var ca = caRegistry[activeCAId];
+  qpSetSelect.innerHTML = '<option value="ALL">All Sets</option>';
+  if (ca && ca.sets) {
+    ca.sets.forEach(function(s) {
+      var opt = document.createElement("option");
+      opt.value = s.setNum;
+      opt.textContent = "SET " + s.setNum + " (" + s.groupName + ")";
+      qpSetSelect.appendChild(opt);
+    });
+  }
+}
+
 activeCaSelect.addEventListener("change", function() {
   activeCAId = this.value;
   syncCurrentCAVisibility();
   syncFilterOptions();
+  syncQpSetOptions();
   fetchActiveSheetData();
 });
 
@@ -237,13 +263,50 @@ function calculateTotal(vivaStr, demoStr) {
   return (v + d);
 }
 
+function toggleSort(column) {
+  if (currentSortColumn === column) {
+    if (currentSortDirection === "desc") {
+      currentSortDirection = "asc";
+    } else if (currentSortDirection === "asc") {
+      currentSortColumn = "";
+      currentSortDirection = "";
+    }
+  } else {
+    currentSortColumn = column;
+    currentSortDirection = "desc";
+  }
+  updateSortButtonsUI();
+  renderTable();
+}
+
+function updateSortButtonsUI() {
+  var sortButtons = {
+    name: document.getElementById("sort-btn-name"),
+    viva: document.getElementById("sort-btn-viva"),
+    demo: document.getElementById("sort-btn-demo"),
+    total: document.getElementById("sort-btn-total")
+  };
+
+  Object.keys(sortButtons).forEach(function(col) {
+    var btn = sortButtons[col];
+    if (!btn) return;
+    if (currentSortColumn === col) {
+      btn.classList.add("active");
+      btn.textContent = currentSortDirection === "desc" ? "▼" : "▲";
+    } else {
+      btn.classList.remove("active");
+      btn.textContent = "▲▼";
+    }
+  });
+}
+
 function getFilteredData() {
   var search = searchInput.value.toLowerCase().trim();
   var grp = filterGroup.value;
   var setVal = filterSet.value;
   var status = filterStatus.value;
 
-  return allStudents.filter(function (s) {
+  var filtered = allStudents.filter(function (s) {
     var matchSearch = s.regNo.toLowerCase().indexOf(search) !== -1 || s.name.toLowerCase().indexOf(search) !== -1;
     var matchGroup = !grp || s.group.indexOf(grp) !== -1;
     var matchSet = !setVal || s.set.indexOf(setVal) !== -1;
@@ -251,6 +314,38 @@ function getFilteredData() {
     var matchStatus = !status || (status === "evaluated" ? isEval : !isEval);
     return matchSearch && matchGroup && matchSet && matchStatus;
   });
+
+  if (currentSortColumn && currentSortDirection) {
+    filtered.sort(function(a, b) {
+      var valA, valB;
+      if (currentSortColumn === "name") {
+        valA = (a.name || "").toLowerCase();
+        valB = (b.name || "").toLowerCase();
+        if (valA < valB) return currentSortDirection === "asc" ? -1 : 1;
+        if (valA > valB) return currentSortDirection === "asc" ? 1 : -1;
+        return 0;
+      } else if (currentSortColumn === "viva") {
+        valA = a.viva !== "" ? parseFloat(a.viva) : -Infinity;
+        valB = b.viva !== "" ? parseFloat(b.viva) : -Infinity;
+      } else if (currentSortColumn === "demo") {
+        valA = a.demo !== "" ? parseFloat(a.demo) : -Infinity;
+        valB = b.demo !== "" ? parseFloat(b.demo) : -Infinity;
+      } else if (currentSortColumn === "total") {
+        var totA = calculateTotal(a.viva, a.demo);
+        var totB = calculateTotal(b.viva, b.demo);
+        valA = totA !== "-" ? parseFloat(totA) : -Infinity;
+        valB = totB !== "-" ? parseFloat(totB) : -Infinity;
+      }
+
+      if (currentSortDirection === "desc") {
+        return valB - valA;
+      } else {
+        return valA - valB;
+      }
+    });
+  }
+
+  return filtered;
 }
 
 function renderTable() {
@@ -294,6 +389,117 @@ function renderTable() {
 
   tableBody.innerHTML = html;
 }
+
+openQpModalBtn.addEventListener("click", function() {
+  syncQpSetOptions();
+  qpDownloadModal.classList.remove("hidden");
+});
+
+closeQpModalBtn.addEventListener("click", function() {
+  qpDownloadModal.classList.add("hidden");
+});
+
+function generateQuestionPaperHTML(selectedSetVal) {
+  var currentCA = caRegistry[activeCAId] || { name: activeCAId, sets: [] };
+  var setsToExport = [];
+
+  if (selectedSetVal === "ALL") {
+    setsToExport = currentCA.sets || [];
+  } else {
+    var matched = (currentCA.sets || []).find(function(s) { return String(s.setNum) === String(selectedSetVal); });
+    if (matched) setsToExport.push(matched);
+  }
+
+  if (setsToExport.length === 0) {
+    alert("No questions configured for this selection.");
+    return "";
+  }
+
+  var html = "<div style='font-family: Arial, Calibri, sans-serif; color: #111; line-height: 1.5; padding: 20px; max-width: 850px; margin: auto;'>";
+
+  html += "<div style='text-align: center; border-bottom: 2px solid #000; padding-bottom: 12px; margin-bottom: 20px;'>" +
+    "<h2 style='margin: 0; font-size: 20px; text-transform: uppercase;'>School of Computer Applications</h2>" +
+    "<h3 style='margin: 5px 0 0 0; font-size: 16px; color: #2563eb;'>Course Code: CAP392 - Java Programming</h3>" +
+    "<h4 style='margin: 5px 0 0 0; font-size: 15px;'>Evaluation Component: " + activeCAId + " - " + currentCA.name + "</h4>" +
+    "<div style='margin-top: 10px; font-size: 13px; font-weight: bold; display: flex; justify-content: space-between; border-top: 1px solid #ccc; padding-top: 6px;'>" +
+      "<span>Time Allowed: 40 Minutes</span>" +
+      "<span>Total Sets: " + (currentCA.sets ? currentCA.sets.length : 1) + "</span>" +
+      "<span>Max Marks: 40</span>" +
+    "</div>" +
+  "</div>";
+
+  html += "<div style='background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px 14px; border-radius: 6px; margin-bottom: 25px; font-size: 13px;'>" +
+    "<strong>General Instructions:</strong>" +
+    "<ul style='margin: 6px 0 0 20px; padding: 0;'>" +
+      "<li>Attempt any <strong>TWO</strong> questions from your allocated set.</li>" +
+      "<li>Dynamic input using <code>Scanner</code> is mandatory for all inputs.</li>" +
+      "<li>Create multiple classes and implement proper control logic as stated in each question.</li>" +
+    "</ul>" +
+  "</div>";
+
+  setsToExport.forEach(function(s, idx) {
+    html += "<div style='margin-bottom: 30px; page-break-inside: avoid;'>" +
+      "<div style='background: #e2e8f0; padding: 8px 12px; border-left: 5px solid #2563eb; font-weight: bold; font-size: 15px; margin-bottom: 15px;'>" +
+        "SET " + s.setNum + " &bull; " + s.groupName + " [Roll Name Alphabet Rule: " + s.charStart + " to " + s.charEnd + "]" +
+      "</div>";
+
+    (s.questions || []).forEach(function(q) {
+      html += "<div style='border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px; margin-bottom: 15px; background: #fff;'>" +
+        "<h4 style='margin: 0 0 8px 0; color: #1e3a8a; font-size: 14px;'>" + q.code + ". " + q.title + "</h4>" +
+        "<div style='font-size: 13px; color: #222;'>" + q.html + "</div>" +
+      "</div>";
+    });
+
+    if (idx < setsToExport.length - 1) {
+      html += "<hr style='border: 0; border-top: 1px dashed #94a3b8; margin: 25px 0;' />";
+    }
+
+    html += "</div>";
+  });
+
+  html += "</div>";
+  return html;
+}
+
+confirmQpDownloadBtn.addEventListener("click", function() {
+  var selectedSet = qpSetSelect.value;
+  var selectedFormat = qpFormatSelect.value;
+  var qpHtml = generateQuestionPaperHTML(selectedSet);
+
+  if (!qpHtml) return;
+
+  qpDownloadModal.classList.add("hidden");
+
+  if (selectedFormat === "WORD") {
+    var wordDoc = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>" +
+      "<head><meta charset='utf-8'><title>Question Paper</title>" +
+      "<style>" +
+      "body { font-family: Calibri, Arial, sans-serif; }" +
+      "table { border-collapse: collapse; width: 100%; margin: 8px 0; }" +
+      "table, th, td { border: 1px solid #444; padding: 6px; }" +
+      "th { background-color: #f1f5f9; }" +
+      "code { font-family: Consolas, monospace; background: #eee; padding: 2px 4px; }" +
+      "</style></head><body>" +
+      qpHtml +
+      "</body></html>";
+
+    var blob = new Blob([wordDoc], { type: "application/msword;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = "CAP392_" + activeCAId + "_QP_" + (selectedSet === "ALL" ? "All_Sets" : "Set_" + selectedSet) + ".doc";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } else {
+    printableQuestionPaper.innerHTML = qpHtml;
+    printableQuestionPaper.classList.remove("hidden");
+    window.print();
+    setTimeout(function() {
+      printableQuestionPaper.classList.add("hidden");
+    }, 1000);
+  }
+});
 
 exportExcelBtn.addEventListener("click", function () {
   var currentCA = caRegistry[activeCAId] || { name: activeCAId };
@@ -758,6 +964,7 @@ window.addEventListener("click", function (e) {
   if (e.target === questionsModal) questionsModal.classList.add("hidden");
   if (e.target === vivaModal) vivaModal.classList.add("hidden");
   if (e.target === caModal) caModal.classList.add("hidden");
+  if (e.target === qpDownloadModal) qpDownloadModal.classList.add("hidden");
 });
 
 refreshBtn.addEventListener("click", fetchActiveSheetData);
