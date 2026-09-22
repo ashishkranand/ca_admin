@@ -39,6 +39,9 @@ var setsEditorContainer = document.getElementById("sets-editor-container");
 var addSetBtn = document.getElementById("add-set-btn");
 var caSaveStatus = document.getElementById("ca-save-status");
 var cfgCaVisible = document.getElementById("cfg-ca-visible");
+var cfgCaReqCount = document.getElementById("cfg-ca-req-count");
+var cfgCaTimerMin = document.getElementById("cfg-ca-timer-min");
+var cfgCaInstructions = document.getElementById("cfg-ca-instructions");
 
 var openVivaModalBtn = document.getElementById("open-viva-modal-btn");
 var closeVivaModalBtn = document.getElementById("close-viva-modal-btn");
@@ -237,7 +240,7 @@ async function fetchActiveSheetData() {
 
 function updateStats() {
   var total = allStudents.length;
-  var hasFiles = allStudents.filter(function (s) { return s.file1Url || s.file2Url; }).length;
+  var hasFiles = allStudents.filter(function (s) { return s.file1Url || s.file2Url || s.submittedCode; }).length;
   var evaluated = allStudents.filter(function (s) { return s.viva !== "" || s.demo !== ""; }).length;
 
   document.getElementById("stat-total").textContent = total;
@@ -348,6 +351,46 @@ function getFilteredData() {
   return filtered;
 }
 
+window.viewStudentCode = function(regNo) {
+  var s = allStudents.find(function(item) { return item.regNo === regNo; });
+  if (!s || !s.submittedCode) {
+    alert("No code content saved for this candidate.");
+    return;
+  }
+  var codeWin = window.open("", "_blank");
+  codeWin.document.write("<pre style='font-family:Consolas,monospace;padding:20px;background:#1e293b;color:#f8fafc;border-radius:8px;font-size:14px;white-space:pre-wrap;'>" +
+    s.submittedCode.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") +
+    "</pre>");
+};
+
+window.deleteCandidate = async function(regNo, name) {
+  if (!confirm("Are you sure you want to permanently delete candidate " + name + " (" + regNo + ") and all their uploaded submissions?")) {
+    return;
+  }
+
+  var payload = {
+    action: "deleteStudentRecord",
+    caId: activeCAId,
+    regNo: regNo
+  };
+
+  try {
+    await fetch(GOOGLE_SCRIPT_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    });
+
+    allStudents = allStudents.filter(function(item) { return item.regNo !== regNo; });
+    renderTable();
+    updateStats();
+    populateStudentDropdown();
+  } catch (err) {
+    alert("Failed to delete record. Please check connection.");
+  }
+};
+
 function renderTable() {
   var filtered = getFilteredData();
 
@@ -359,6 +402,9 @@ function renderTable() {
   var html = "";
   filtered.forEach(function (s, idx) {
     var fileLinks = [];
+    if (s.submittedCode) {
+      fileLinks.push('<button type="button" class="btn-secondary" style="font-size:0.75rem;padding:0.2rem 0.5rem;" onclick="viewStudentCode(\'' + s.regNo + '\')">View Code</button>');
+    }
     if (s.file1Url) fileLinks.push('<a class="file-link" href="' + s.file1Url + '" target="_blank">File 1</a>');
     if (s.file2Url) fileLinks.push('<a class="file-link" href="' + s.file2Url + '" target="_blank">File 2</a>');
     if (fileLinks.length === 0) fileLinks.push('<span style="color: var(--muted); font-size: 0.8rem;">No files</span>');
@@ -383,340 +429,44 @@ function renderTable() {
       '<td>' + vivaDisplay + '</td>' +
       '<td>' + demoDisplay + '</td>' +
       '<td>' + totalDisplay + '</td>' +
-      '<td><button type="button" class="btn-edit-mark" onclick="openEvaluationModal(\'' + s.regNo + '\')">Evaluate</button></td>' +
+      '<td>' +
+        '<button type="button" class="btn-edit-mark" onclick="openEvaluationModal(\'' + s.regNo + '\')">Evaluate</button>' +
+        '<button type="button" class="btn-row-del" onclick="deleteCandidate(\'' + s.regNo + '\', \'' + s.name.replace(/'/g, "\\'") + '\')">Delete</button>' +
+      '</td>' +
       '</tr>';
   });
 
   tableBody.innerHTML = html;
 }
 
-openQpModalBtn.addEventListener("click", function() {
-  syncQpSetOptions();
-  qpDownloadModal.classList.remove("hidden");
-});
-
-closeQpModalBtn.addEventListener("click", function() {
-  qpDownloadModal.classList.add("hidden");
-});
-
-function generateQuestionPaperHTML(selectedSetVal) {
-  var currentCA = caRegistry[activeCAId] || { name: activeCAId, sets: [] };
-  var setsToExport = [];
-
-  if (selectedSetVal === "ALL") {
-    setsToExport = currentCA.sets || [];
-  } else {
-    var matched = (currentCA.sets || []).find(function(s) { return String(s.setNum) === String(selectedSetVal); });
-    if (matched) setsToExport.push(matched);
-  }
-
-  if (setsToExport.length === 0) {
-    alert("No questions configured for this selection.");
-    return "";
-  }
-
-  var html = "<div style='font-family: Arial, Calibri, sans-serif; color: #111; line-height: 1.5; padding: 20px; max-width: 850px; margin: auto;'>";
-
-  html += "<div style='text-align: center; border-bottom: 2px solid #000; padding-bottom: 12px; margin-bottom: 20px;'>" +
-    "<h2 style='margin: 0; font-size: 20px; text-transform: uppercase;'>School of Computer Applications</h2>" +
-    "<h3 style='margin: 5px 0 0 0; font-size: 16px; color: #2563eb;'>Course Code: CAP392 - Java Programming</h3>" +
-    "<h4 style='margin: 5px 0 0 0; font-size: 15px;'>Evaluation Component: " + activeCAId + " - " + currentCA.name + "</h4>" +
-    "<div style='margin-top: 10px; font-size: 13px; font-weight: bold; display: flex; justify-content: space-between; border-top: 1px solid #ccc; padding-top: 6px;'>" +
-      "<span>Time Allowed: 40 Minutes</span>" +
-      "<span>Total Sets: " + (currentCA.sets ? currentCA.sets.length : 1) + "</span>" +
-      "<span>Max Marks: 40</span>" +
-    "</div>" +
-  "</div>";
-
-  html += "<div style='background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px 14px; border-radius: 6px; margin-bottom: 25px; font-size: 13px;'>" +
-    "<strong>General Instructions:</strong>" +
-    "<ul style='margin: 6px 0 0 20px; padding: 0;'>" +
-      "<li>Attempt any <strong>TWO</strong> questions from your allocated set.</li>" +
-      "<li>Dynamic input using <code>Scanner</code> is mandatory for all inputs.</li>" +
-      "<li>Create multiple classes and implement proper control logic as stated in each question.</li>" +
-    "</ul>" +
-  "</div>";
-
-  setsToExport.forEach(function(s, idx) {
-    html += "<div style='margin-bottom: 30px; page-break-inside: avoid;'>" +
-      "<div style='background: #e2e8f0; padding: 8px 12px; border-left: 5px solid #2563eb; font-weight: bold; font-size: 15px; margin-bottom: 15px;'>" +
-        "SET " + s.setNum + " &bull; " + s.groupName + " [Roll Name Alphabet Rule: " + s.charStart + " to " + s.charEnd + "]" +
-      "</div>";
-
-    (s.questions || []).forEach(function(q) {
-      html += "<div style='border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px; margin-bottom: 15px; background: #fff;'>" +
-        "<h4 style='margin: 0 0 8px 0; color: #1e3a8a; font-size: 14px;'>" + q.code + ". " + q.title + "</h4>" +
-        "<div style='font-size: 13px; color: #222;'>" + q.html + "</div>" +
-      "</div>";
-    });
-
-    if (idx < setsToExport.length - 1) {
-      html += "<hr style='border: 0; border-top: 1px dashed #94a3b8; margin: 25px 0;' />";
-    }
-
-    html += "</div>";
-  });
-
-  html += "</div>";
-  return html;
-}
-
-confirmQpDownloadBtn.addEventListener("click", function() {
-  var selectedSet = qpSetSelect.value;
-  var selectedFormat = qpFormatSelect.value;
-  var qpHtml = generateQuestionPaperHTML(selectedSet);
-
-  if (!qpHtml) return;
-
-  qpDownloadModal.classList.add("hidden");
-
-  if (selectedFormat === "WORD") {
-    var wordDoc = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>" +
-      "<head><meta charset='utf-8'><title>Question Paper</title>" +
-      "<style>" +
-      "body { font-family: Calibri, Arial, sans-serif; }" +
-      "table { border-collapse: collapse; width: 100%; margin: 8px 0; }" +
-      "table, th, td { border: 1px solid #444; padding: 6px; }" +
-      "th { background-color: #f1f5f9; }" +
-      "code { font-family: Consolas, monospace; background: #eee; padding: 2px 4px; }" +
-      "</style></head><body>" +
-      qpHtml +
-      "</body></html>";
-
-    var blob = new Blob([wordDoc], { type: "application/msword;charset=utf-8" });
-    var url = URL.createObjectURL(blob);
-    var link = document.createElement("a");
-    link.href = url;
-    link.download = "CAP392_" + activeCAId + "_QP_" + (selectedSet === "ALL" ? "All_Sets" : "Set_" + selectedSet) + ".doc";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  } else {
-    printableQuestionPaper.innerHTML = qpHtml;
-    printableQuestionPaper.classList.remove("hidden");
-    window.print();
-    setTimeout(function() {
-      printableQuestionPaper.classList.add("hidden");
-    }, 1000);
-  }
-});
-
-exportExcelBtn.addEventListener("click", function () {
-  var currentCA = caRegistry[activeCAId] || { name: activeCAId };
-  var data = getFilteredData();
-
-  if (data.length === 0) {
-    alert("No records to export.");
-    return;
-  }
-
-  var dateStr = new Date().toLocaleDateString();
-  var rowsHtml = "";
-  for (var i = 0; i < data.length; i++) {
-    var s = data[i];
-    var totalMarks = calculateTotal(s.viva, s.demo);
-    rowsHtml += "<tr>" +
-      "<td>" + (i + 1) + "</td>" +
-      "<td>" + s.regNo + "</td>" +
-      "<td>" + s.name + "</td>" +
-      "<td>" + s.group + " - " + s.set + "</td>" +
-      "<td>" + (s.selectedQuestions || "-") + "</td>" +
-      "<td>" + (s.viva !== "" ? s.viva : "-") + "</td>" +
-      "<td>" + (s.demo !== "" ? s.demo : "-") + "</td>" +
-      "<td>" + totalMarks + "</td>" +
-      "</tr>";
-  }
-
-  var excelHtml = "<html><head><meta charset='utf-8'></head><body>" +
-    "<table border='1'>" +
-    "<tr><th colspan='8' style='background:#2563eb;color:#fff;font-size:16px;'>Course: CAP392 - Student Assessment Report</th></tr>" +
-    "<tr><th colspan='8' style='background:#eff6ff;'>Assessment: " + activeCAId + " - " + currentCA.name + " | Date: " + dateStr + "</th></tr>" +
-    "<tr><th>Sr. No.</th><th>Reg No</th><th>Student Name</th><th>Group &amp; Set</th><th>Questions</th><th>Viva</th><th>Demo</th><th>Total Marks</th></tr>" +
-    rowsHtml +
-    "</table></body></html>";
-
-  var blob = new Blob([excelHtml], { type: "application/vnd.ms-excel;charset=utf-8" });
-  var url = URL.createObjectURL(blob);
-  var link = document.createElement("a");
-  link.href = url;
-  link.download = "CAP392_" + activeCAId + "_Report.xls";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-});
-
-exportPdfBtn.addEventListener("click", function () {
-  var currentCA = caRegistry[activeCAId] || { name: activeCAId };
-  var data = getFilteredData();
-
-  if (data.length === 0) {
-    alert("No records to export.");
-    return;
-  }
-
-  var dateStr = new Date().toLocaleDateString();
-  var rowsHtml = "";
-  for (var i = 0; i < data.length; i++) {
-    var s = data[i];
-    var totalMarks = calculateTotal(s.viva, s.demo);
-    rowsHtml += "<tr>" +
-      "<td style='padding:5px;'>" + (i + 1) + "</td>" +
-      "<td style='padding:5px;font-weight:bold;'>" + s.regNo + "</td>" +
-      "<td style='padding:5px;'>" + s.name + "</td>" +
-      "<td style='padding:5px;'>" + s.group + " (" + s.set + ")</td>" +
-      "<td style='padding:5px;'>" + (s.selectedQuestions || "-") + "</td>" +
-      "<td style='padding:5px;'>" + (s.viva !== "" ? s.viva : "-") + "</td>" +
-      "<td style='padding:5px;'>" + (s.demo !== "" ? s.demo : "-") + "</td>" +
-      "<td style='padding:5px;font-weight:bold;color:#1e40af;'>" + totalMarks + "</td>" +
-      "</tr>";
-  }
-
-  var reportHtml = "<div style='padding:10px;'>" +
-    "<div style='border-bottom:2px solid #2563eb;padding-bottom:8px;margin-bottom:15px;'>" +
-      "<h2 style='margin:0;'>Course: CAP392 - Practical Report Card</h2>" +
-      "<h4 style='margin:4px 0 0 0;color:#2563eb;'>Assessment: " + activeCAId + " - " + currentCA.name + " | Date: " + dateStr + "</h4>" +
-    "</div>" +
-    "<table border='1' style='width:100%;border-collapse:collapse;font-size:12px;'>" +
-      "<thead><tr style='background:#f1f5f9;'><th>Sr.</th><th>Reg No</th><th>Name</th><th>Group &amp; Set</th><th>Questions</th><th>Viva</th><th>Demo</th><th>Total</th></tr></thead><tbody>" +
-      rowsHtml +
-      "</tbody></table>" +
-    "<div style='margin-top:30px;display:flex;justify-content:space-between;font-size:13px;'>" +
-      "<span>Evaluator: __________________</span>" +
-      "<span>Signature: __________________</span>" +
-    "</div></div>";
-
-  printableReportCard.innerHTML = reportHtml;
-  printableReportCard.classList.remove("hidden");
-  window.print();
-
-  setTimeout(function () {
-    printableReportCard.classList.add("hidden");
-  }, 1000);
-});
-
-window.openQuestionsModal = function (regNo) {
-  var student = allStudents.find(function (s) { return s.regNo === regNo; });
-  if (!student) return;
-
-  var currentCA = caRegistry[activeCAId];
-  if (!currentCA) return;
-
-  var setMatch = student.set.match(/\d+/);
-  var setNum = setMatch ? parseInt(setMatch[0], 10) : 1;
-  var currentSet = currentCA.sets.find(function(s) { return s.setNum === setNum; }) || currentCA.sets[0];
-
-  var selectedList = (student.selectedQuestions || "")
-    .split(",")
-    .map(function (q) { return q.trim().toUpperCase(); });
-
-  qModalTitle.textContent = (currentSet.groupName || ("SET " + setNum)) + " - " + student.name + " (" + student.regNo + ")";
-  qModalSubtitle.textContent = "Attempted selections: " + (student.selectedQuestions || "None");
-
-  var bodyHtml = "";
-  currentSet.questions.forEach(function (q) {
-    var isSelected = selectedList.indexOf(q.code.toUpperCase()) !== -1;
-    bodyHtml += '<div class="q-item ' + (isSelected ? "highlighted" : "") + '">' +
-      '<div class="q-item-header">' +
-        '<h3>' + q.code + '. ' + q.title + '</h3>' +
-        (isSelected
-          ? '<span class="tag-selected">Selected</span>'
-          : '<span class="tag-not-selected">Not Selected</span>') +
-      '</div>' +
-      '<div>' + q.html + '</div>' +
-    '</div>';
-  });
-
-  qModalBody.innerHTML = bodyHtml;
-  questionsModal.classList.remove("hidden");
-};
-
-closeQModalBtn.addEventListener("click", function () { questionsModal.classList.add("hidden"); });
-
-window.openEvaluationModal = function (regNo) {
-  vivaModal.classList.remove("hidden");
-  studentSelect.value = regNo;
-  onStudentSelectChange();
-};
-
-function onStudentSelectChange() {
-  var reg = studentSelect.value;
-  modalStatusMsg.textContent = "";
-  if (!reg) {
-    studentPreview.classList.add("hidden");
-    vivaMarksInput.value = "";
-    demoMarksInput.value = "";
-    return;
-  }
-  var student = allStudents.find(function (s) { return s.regNo === reg; });
-  if (student) {
-    studentPreview.classList.remove("hidden");
-    var fLinks = [];
-    if (student.file1Url) fLinks.push('<a class="file-link" href="' + student.file1Url + '" target="_blank">File 1</a>');
-    if (student.file2Url) fLinks.push('<a class="file-link" href="' + student.file2Url + '" target="_blank">File 2</a>');
-
-    studentPreview.innerHTML =
-      '<strong>' + student.name + ' (' + student.regNo + ')</strong><br>' +
-      '<span>' + student.group + ' | ' + student.set + ' | Questions: ' + student.selectedQuestions + '</span><br>' +
-      '<div style="margin-top:0.4rem;">' + (fLinks.length ? fLinks.join(" ") : "No submissions yet") + '</div>';
-
-    vivaMarksInput.value = student.viva || "";
-    demoMarksInput.value = student.demo || "";
-  }
-}
-
-studentSelect.addEventListener("change", onStudentSelectChange);
-openVivaModalBtn.addEventListener("click", function () { vivaModal.classList.remove("hidden"); onStudentSelectChange(); });
-closeVivaModalBtn.addEventListener("click", function () { vivaModal.classList.add("hidden"); });
-
-saveMarksBtn.addEventListener("click", async function () {
-  var reg = studentSelect.value;
-  if (!reg) return;
-
-  var viva = vivaMarksInput.value.trim();
-  var demo = demoMarksInput.value.trim();
-
-  saveMarksBtn.disabled = true;
-  modalStatusMsg.textContent = "Saving to Google Sheet...";
-  modalStatusMsg.className = "status-msg";
-
-  var payload = {
-    action: "updateMarks",
-    caId: activeCAId,
-    regNo: reg,
-    viva: viva,
-    demo: demo
-  };
-
-  try {
-    await fetch(GOOGLE_SCRIPT_URL, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload)
-    });
-
-    var s = allStudents.find(function (item) { return item.regNo === reg; });
-    if (s) { s.viva = viva; s.demo = demo; }
-
-    modalStatusMsg.textContent = "Marks updated in sheet!";
-    modalStatusMsg.className = "status-msg success";
-    renderTable();
-    updateStats();
-
-    setTimeout(function () { saveMarksBtn.disabled = false; }, 800);
-  } catch (err) {
-    modalStatusMsg.textContent = "Failed to update marks.";
-    modalStatusMsg.className = "status-msg error";
-    saveMarksBtn.disabled = false;
-  }
-});
-
 openCaModalBtn.addEventListener("click", function() {
   caModal.classList.remove("hidden");
-  var current = caRegistry[activeCAId] || { id: "CA1", name: "New CA", sets: [] };
+  var current = caRegistry[activeCAId] || {
+    id: "CA1",
+    name: "New CA",
+    requiredQuestions: 1,
+    timerMinutes: 40,
+    instructionsHtml: "",
+    sets: []
+  };
+
   document.getElementById("cfg-ca-id").value = current.id;
   document.getElementById("cfg-ca-name").value = current.name;
+  cfgCaReqCount.value = current.requiredQuestions !== undefined ? current.requiredQuestions : 1;
+  cfgCaTimerMin.value = current.timerMinutes !== undefined ? current.timerMinutes : 40;
   cfgCaVisible.checked = (current.isVisible !== undefined) ? current.isVisible : true;
+
+  var defaultInstHtml =
+    '<div class="alert-box"><strong>Time Allowed:</strong> 40 minutes total.</div>' +
+    '<ul>' +
+      '<li><strong>Attempt any ONE question</strong> from your allocated set.</li>' +
+      '<li><strong>Selection Requirement:</strong> You must check the boxes for the questions you are attempting and click <strong>Confirm Selection</strong> to record your choices.</li>' +
+      '<li><strong>Dynamic Input:</strong> Take all required input from the user using <code>Scanner</code>.</li>' +
+      '<li><strong>Control Structures:</strong> Implement the appropriate control logic (if-else, switch, loops).</li>' +
+      '<li>After completion, click <strong>Upload Files</strong> at the top to upload your source code files directly to Google Drive.</li>' +
+    '</ul>';
+
+  cfgCaInstructions.innerHTML = current.instructionsHtml || defaultInstHtml;
   renderSetsEditor(current.sets || []);
 });
 
@@ -732,7 +482,7 @@ function renderSetsEditor(sets) {
     var topRow = document.createElement("div");
     topRow.style.cssText = "display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;";
     topRow.innerHTML = "<strong>SET " + setObj.setNum + " Definition</strong>";
-    
+
     var removeSetBtn = document.createElement("button");
     removeSetBtn.type = "button";
     removeSetBtn.className = "btn-secondary";
@@ -848,8 +598,7 @@ addSetBtn.addEventListener("click", function() {
     charStart: "A",
     charEnd: "Z",
     questions: [
-      { code: "Q1", title: "Problem 1", html: "<p>Describe problem details here...</p>" },
-      { code: "Q2", title: "Problem 2", html: "<p>Describe problem details here...</p>" }
+      { code: "Q1", title: "Problem 1", html: "<p>Describe problem details here...</p>" }
     ]
   });
   renderSetsEditor(currentSets);
@@ -908,6 +657,9 @@ saveCaConfigBtn.addEventListener("click", async function() {
   var caId = document.getElementById("cfg-ca-id").value.trim().toUpperCase();
   var caName = document.getElementById("cfg-ca-name").value.trim();
   var isVis = cfgCaVisible.checked;
+  var reqCount = parseInt(cfgCaReqCount.value, 10) || 1;
+  var timerMin = parseInt(cfgCaTimerMin.value, 10) || 40;
+  var instructionsHtml = cfgCaInstructions.innerHTML;
 
   if (!caId || !caName) {
     alert("Please specify a CA Identifier and Display Title.");
@@ -930,6 +682,9 @@ saveCaConfigBtn.addEventListener("click", async function() {
       id: caId,
       name: caName,
       isVisible: isVis,
+      requiredQuestions: reqCount,
+      timerMinutes: timerMin,
+      instructionsHtml: instructionsHtml,
       sets: sets
     }
   };
@@ -957,6 +712,334 @@ saveCaConfigBtn.addEventListener("click", async function() {
     caSaveStatus.textContent = "Failed to synchronize CA config.";
     caSaveStatus.className = "status-msg error";
     saveCaConfigBtn.disabled = false;
+  }
+});
+
+// --- Question Paper Generation & Download ---
+openQpModalBtn.addEventListener("click", function() {
+  syncQpSetOptions();
+  qpDownloadModal.classList.remove("hidden");
+});
+
+closeQpModalBtn.addEventListener("click", function() {
+  qpDownloadModal.classList.add("hidden");
+});
+
+function generateQuestionPaperHTML(selectedSetVal) {
+  var currentCA = caRegistry[activeCAId] || { name: activeCAId, sets: [] };
+  var setsToExport = [];
+
+  if (selectedSetVal === "ALL") {
+    setsToExport = currentCA.sets || [];
+  } else {
+    var matched = (currentCA.sets || []).find(function(s) { return String(s.setNum) === String(selectedSetVal); });
+    if (matched) setsToExport.push(matched);
+  }
+
+  if (setsToExport.length === 0) {
+    alert("No questions configured for this selection.");
+    return "";
+  }
+
+  var reqCount = currentCA.requiredQuestions || 1;
+  var customInst = currentCA.instructionsHtml || (
+    "<strong>General Instructions:</strong>" +
+    "<ul style='margin: 6px 0 0 20px; padding: 0;'>" +
+      "<li>Attempt any <strong>" + reqCount + "</strong> question(s) from your allocated set.</li>" +
+      "<li>Dynamic input using <code>Scanner</code> is mandatory for all inputs.</li>" +
+      "<li>Create multiple classes and implement proper control logic as stated in each question.</li>" +
+    "</ul>"
+  );
+
+  var html = "<div style='font-family: Arial, Calibri, sans-serif; color: #111; line-height: 1.5; padding: 20px; max-width: 850px; margin: auto;'>";
+
+  html += "<div style='text-align: center; border-bottom: 2px solid #000; padding-bottom: 12px; margin-bottom: 20px;'>" +
+    "<h2 style='margin: 0; font-size: 20px; text-transform: uppercase;'>School of Computer Applications</h2>" +
+    "<h3 style='margin: 5px 0 0 0; font-size: 16px; color: #2563eb;'>Course Code: CAP392 - Java Programming</h3>" +
+    "<h4 style='margin: 5px 0 0 0; font-size: 15px;'>Evaluation Component: " + activeCAId + " - " + currentCA.name + "</h4>" +
+    "<div style='margin-top: 10px; font-size: 13px; font-weight: bold; display: flex; justify-content: space-between; border-top: 1px solid #ccc; padding-top: 6px;'>" +
+      "<span>Required Questions: " + reqCount + "</span>" +
+      "<span>Total Sets: " + (currentCA.sets ? currentCA.sets.length : 1) + "</span>" +
+      "<span>Max Marks: 40</span>" +
+    "</div>" +
+  "</div>";
+
+  html += "<div style='background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px 14px; border-radius: 6px; margin-bottom: 25px; font-size: 13px;'>" +
+    customInst +
+  "</div>";
+
+  setsToExport.forEach(function(s, idx) {
+    html += "<div style='margin-bottom: 30px; page-break-inside: avoid;'>" +
+      "<div style='background: #e2e8f0; padding: 8px 12px; border-left: 5px solid #2563eb; font-weight: bold; font-size: 15px; margin-bottom: 15px;'>" +
+        "SET " + s.setNum + " &bull; " + s.groupName + " [Roll Name Alphabet Rule: " + s.charStart + " to " + s.charEnd + "]" +
+      "</div>";
+
+    (s.questions || []).forEach(function(q) {
+      html += "<div style='border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px; margin-bottom: 15px; background: #fff;'>" +
+        "<h4 style='margin: 0 0 8px 0; color: #1e3a8a; font-size: 14px;'>" + q.code + ". " + q.title + "</h4>" +
+        "<div style='font-size: 13px; color: #222;'>" + q.html + "</div>" +
+      "</div>";
+    });
+
+    if (idx < setsToExport.length - 1) {
+      html += "<hr style='border: 0; border-top: 1px dashed #94a3b8; margin: 25px 0;' />";
+    }
+
+    html += "</div>";
+  });
+
+  html += "</div>";
+  return html;
+}
+
+confirmQpDownloadBtn.addEventListener("click", function() {
+  var selectedSet = qpSetSelect.value;
+  var selectedFormat = qpFormatSelect.value;
+  var qpHtml = generateQuestionPaperHTML(selectedSet);
+
+  if (!qpHtml) return;
+
+  qpDownloadModal.classList.add("hidden");
+
+  if (selectedFormat === "WORD") {
+    var wordDoc = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>" +
+      "<head><meta charset='utf-8'><title>Question Paper</title>" +
+      "<style>" +
+      "body { font-family: Calibri, Arial, sans-serif; }" +
+      "table { border-collapse: collapse; width: 100%; margin: 8px 0; }" +
+      "table, th, td { border: 1px solid #444; padding: 6px; }" +
+      "th { background-color: #f1f5f9; }" +
+      "code { font-family: Consolas, monospace; background: #eee; padding: 2px 4px; }" +
+      "</style></head><body>" +
+      qpHtml +
+      "</body></html>";
+
+    var blob = new Blob([wordDoc], { type: "application/msword;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = "CAP392_" + activeCAId + "_QP_" + (selectedSet === "ALL" ? "All_Sets" : "Set_" + selectedSet) + ".doc";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } else {
+    printableQuestionPaper.innerHTML = qpHtml;
+    printableQuestionPaper.classList.remove("hidden");
+    window.print();
+    setTimeout(function() {
+      printableQuestionPaper.classList.add("hidden");
+    }, 1000);
+  }
+});
+
+// --- Excel Export ---
+exportExcelBtn.addEventListener("click", function () {
+  var currentCA = caRegistry[activeCAId] || { name: activeCAId };
+  var data = getFilteredData();
+
+  if (data.length === 0) {
+    alert("No records to export.");
+    return;
+  }
+
+  var dateStr = new Date().toLocaleDateString();
+  var rowsHtml = "";
+  for (var i = 0; i < data.length; i++) {
+    var s = data[i];
+    var totalMarks = calculateTotal(s.viva, s.demo);
+    rowsHtml += "<tr>" +
+      "<td>" + (i + 1) + "</td>" +
+      "<td>" + s.regNo + "</td>" +
+      "<td>" + s.name + "</td>" +
+      "<td>" + s.group + " - " + s.set + "</td>" +
+      "<td>" + (s.selectedQuestions || "-") + "</td>" +
+      "<td>" + (s.viva !== "" ? s.viva : "-") + "</td>" +
+      "<td>" + (s.demo !== "" ? s.demo : "-") + "</td>" +
+      "<td>" + totalMarks + "</td>" +
+      "</tr>";
+  }
+
+  var excelHtml = "<html><head><meta charset='utf-8'></head><body>" +
+    "<table border='1'>" +
+    "<tr><th colspan='8' style='background:#2563eb;color:#fff;font-size:16px;'>Course: CAP392 - Student Assessment Report</th></tr>" +
+    "<tr><th colspan='8' style='background:#eff6ff;'>Assessment: " + activeCAId + " - " + currentCA.name + " | Date: " + dateStr + "</th></tr>" +
+    "<tr><th>Sr. No.</th><th>Reg No</th><th>Student Name</th><th>Group &amp; Set</th><th>Questions</th><th>Viva</th><th>Demo</th><th>Total Marks</th></tr>" +
+    rowsHtml +
+    "</table></body></html>";
+
+  var blob = new Blob([excelHtml], { type: "application/vnd.ms-excel;charset=utf-8" });
+  var url = URL.createObjectURL(blob);
+  var link = document.createElement("a");
+  link.href = url;
+  link.download = "CAP392_" + activeCAId + "_Report.xls";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+});
+
+// --- PDF Export ---
+exportPdfBtn.addEventListener("click", function () {
+  var currentCA = caRegistry[activeCAId] || { name: activeCAId };
+  var data = getFilteredData();
+
+  if (data.length === 0) {
+    alert("No records to export.");
+    return;
+  }
+
+  var dateStr = new Date().toLocaleDateString();
+  var rowsHtml = "";
+  for (var i = 0; i < data.length; i++) {
+    var s = data[i];
+    var totalMarks = calculateTotal(s.viva, s.demo);
+    rowsHtml += "<tr>" +
+      "<td style='padding:5px;'>" + (i + 1) + "</td>" +
+      "<td style='padding:5px;font-weight:bold;'>" + s.regNo + "</td>" +
+      "<td style='padding:5px;'>" + s.name + "</td>" +
+      "<td style='padding:5px;'>" + s.group + " (" + s.set + ")</td>" +
+      "<td style='padding:5px;'>" + (s.selectedQuestions || "-") + "</td>" +
+      "<td style='padding:5px;'>" + (s.viva !== "" ? s.viva : "-") + "</td>" +
+      "<td style='padding:5px;'>" + (s.demo !== "" ? s.demo : "-") + "</td>" +
+      "<td style='padding:5px;font-weight:bold;color:#1e40af;'>" + totalMarks + "</td>" +
+      "</tr>";
+  }
+
+  var reportHtml = "<div style='padding:10px;'>" +
+    "<div style='border-bottom:2px solid #2563eb;padding-bottom:8px;margin-bottom:15px;'>" +
+      "<h2 style='margin:0;'>Course: CAP392 - Practical Report Card</h2>" +
+      "<h4 style='margin:4px 0 0 0;color:#2563eb;'>Assessment: " + activeCAId + " - " + currentCA.name + " | Date: " + dateStr + "</h4>" +
+    "</div>" +
+    "<table border='1' style='width:100%;border-collapse:collapse;font-size:12px;'>" +
+      "<thead><tr style='background:#f1f5f9;'><th>Sr.</th><th>Reg No</th><th>Name</th><th>Group &amp; Set</th><th>Questions</th><th>Viva</th><th>Demo</th><th>Total</th></tr></thead><tbody>" +
+      rowsHtml +
+      "</tbody></table>" +
+    "<div style='margin-top:30px;display:flex;justify-content:space-between;font-size:13px;'>" +
+      "<span>Evaluator: __________________</span>" +
+      "<span>Signature: __________________</span>" +
+    "</div></div>";
+
+  printableReportCard.innerHTML = reportHtml;
+  printableReportCard.classList.remove("hidden");
+  window.print();
+
+  setTimeout(function () {
+    printableReportCard.classList.add("hidden");
+  }, 1000);
+});
+
+window.openQuestionsModal = function (regNo) {
+  var student = allStudents.find(function (s) { return s.regNo === regNo; });
+  if (!student) return;
+
+  var currentCA = caRegistry[activeCAId];
+  if (!currentCA) return;
+
+  var setMatch = student.set.match(/\d+/);
+  var setNum = setMatch ? parseInt(setMatch[0], 10) : 1;
+  var currentSet = currentCA.sets.find(function(s) { return s.setNum === setNum; }) || currentCA.sets[0];
+
+  var selectedList = (student.selectedQuestions || "")
+    .split(",")
+    .map(function (q) { return q.trim().toUpperCase(); });
+
+  qModalTitle.textContent = (currentSet.groupName || ("SET " + setNum)) + " - " + student.name + " (" + student.regNo + ")";
+  qModalSubtitle.textContent = "Attempted selections: " + (student.selectedQuestions || "None");
+
+  var bodyHtml = "";
+  currentSet.questions.forEach(function (q) {
+    var isSelected = selectedList.indexOf(q.code.toUpperCase()) !== -1;
+    bodyHtml += '<div class="q-item ' + (isSelected ? "highlighted" : "") + '">' +
+      '<div class="q-item-header">' +
+        '<h3>' + q.code + '. ' + q.title + '</h3>' +
+        (isSelected ? '<span class="tag-selected">Selected</span>' : '<span class="tag-not-selected">Not Selected</span>') +
+      '</div>' +
+      '<div>' + q.html + '</div>' +
+    '</div>';
+  });
+
+  qModalBody.innerHTML = bodyHtml;
+  questionsModal.classList.remove("hidden");
+};
+
+closeQModalBtn.addEventListener("click", function () { questionsModal.classList.add("hidden"); });
+
+window.openEvaluationModal = function (regNo) {
+  vivaModal.classList.remove("hidden");
+  studentSelect.value = regNo;
+  onStudentSelectChange();
+};
+
+function onStudentSelectChange() {
+  var reg = studentSelect.value;
+  modalStatusMsg.textContent = "";
+  if (!reg) {
+    studentPreview.classList.add("hidden");
+    vivaMarksInput.value = "";
+    demoMarksInput.value = "";
+    return;
+  }
+  var student = allStudents.find(function (s) { return s.regNo === reg; });
+  if (student) {
+    studentPreview.classList.remove("hidden");
+    var fLinks = [];
+    if (student.submittedCode) fLinks.push('<button type="button" class="btn-secondary" style="font-size:0.75rem;padding:0.2rem 0.5rem;" onclick="viewStudentCode(\'' + student.regNo + '\')">View Code</button>');
+    if (student.file1Url) fLinks.push('<a class="file-link" href="' + student.file1Url + '" target="_blank">File 1</a>');
+    if (student.file2Url) fLinks.push('<a class="file-link" href="' + student.file2Url + '" target="_blank">File 2</a>');
+
+    studentPreview.innerHTML =
+      '<strong>' + student.name + ' (' + student.regNo + ')</strong><br>' +
+      '<span>' + student.group + ' | ' + student.set + ' | Questions: ' + student.selectedQuestions + '</span><br>' +
+      '<div style="margin-top:0.4rem;">' + (fLinks.length ? fLinks.join(" ") : "No submissions yet") + '</div>';
+
+    vivaMarksInput.value = student.viva || "";
+    demoMarksInput.value = student.demo || "";
+  }
+}
+
+studentSelect.addEventListener("change", onStudentSelectChange);
+openVivaModalBtn.addEventListener("click", function () { vivaModal.classList.remove("hidden"); onStudentSelectChange(); });
+closeVivaModalBtn.addEventListener("click", function () { vivaModal.classList.add("hidden"); });
+
+saveMarksBtn.addEventListener("click", async function () {
+  var reg = studentSelect.value;
+  if (!reg) return;
+
+  var viva = vivaMarksInput.value.trim();
+  var demo = demoMarksInput.value.trim();
+
+  saveMarksBtn.disabled = true;
+  modalStatusMsg.textContent = "Saving to cloud records...";
+  modalStatusMsg.className = "status-msg";
+
+  var payload = {
+    action: "updateMarks",
+    caId: activeCAId,
+    regNo: reg,
+    viva: viva,
+    demo: demo
+  };
+
+  try {
+    await fetch(GOOGLE_SCRIPT_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    });
+
+    var s = allStudents.find(function (item) { return item.regNo === reg; });
+    if (s) { s.viva = viva; s.demo = demo; }
+
+    modalStatusMsg.textContent = "Marks updated in cloud records!";
+    modalStatusMsg.className = "status-msg success";
+    renderTable();
+    updateStats();
+
+    setTimeout(function () { saveMarksBtn.disabled = false; }, 800);
+  } catch (err) {
+    modalStatusMsg.textContent = "Failed to update marks.";
+    modalStatusMsg.className = "status-msg error";
+    saveMarksBtn.disabled = false;
   }
 });
 
