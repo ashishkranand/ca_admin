@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Faculty Evaluation &amp; CA Manager - CAP392</title>
+    <title>Faculty Evaluation &amp; Examination Manager - CAP392</title>
     <style>
         :root {
             --primary: #2563eb;
@@ -367,6 +367,18 @@
             background: #4338ca;
         }
 
+        .btn-row-del {
+            background: #ef4444;
+            padding: 0.35rem 0.6rem;
+            font-size: 0.8rem;
+            border-radius: 6px;
+            margin-left: 0.35rem;
+        }
+
+        .btn-row-del:hover {
+            background: #dc2626;
+        }
+
         .modal-overlay {
             position: fixed;
             inset: 0;
@@ -445,30 +457,6 @@
             font-size: 1rem;
             color: var(--text);
             font-weight: 700;
-        }
-
-        .q-item.highlighted .q-item-header h3 {
-            color: #15803d;
-        }
-
-        .tag-selected {
-            background: var(--success);
-            color: #fff;
-            font-size: 0.72rem;
-            padding: 0.2rem 0.5rem;
-            border-radius: 9999px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .tag-not-selected {
-            background: #e2e8f0;
-            color: var(--muted);
-            font-size: 0.72rem;
-            padding: 0.2rem 0.5rem;
-            border-radius: 9999px;
-            font-weight: 600;
         }
 
         .creator-section {
@@ -574,6 +562,25 @@
             color: var(--danger);
         }
 
+        .tag-selected {
+            background: var(--success);
+            color: #fff;
+            font-size: 0.72rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 9999px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .tag-not-selected {
+            background: #e2e8f0;
+            color: var(--muted);
+            font-size: 0.72rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 9999px;
+            font-weight: 600;
+        }
+
         @media print {
             body * {
                 visibility: hidden;
@@ -600,12 +607,11 @@
 </head>
 
 <body>
-
     <div id="login-section" class="login-container">
         <div class="login-card">
             <h2 style="font-size: 1.4rem; margin-bottom: 0.5rem;">Faculty Login</h2>
-            <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem;">Enter credentials from the sheet
-                users tab.</p>
+            <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem;">Enter credentials from the
+                authorization registry.</p>
 
             <div class="form-group">
                 <label for="admin-user-input">Email / Username</label>
@@ -699,7 +705,7 @@
                         </th>
                         <th>Group &amp; Set</th>
                         <th>Questions</th>
-                        <th>Uploaded Files</th>
+                        <th>Code / Files</th>
                         <th>
                             <div class="sort-header">
                                 <span>Viva</span>
@@ -734,10 +740,11 @@
         </div>
     </div>
 
+    <!-- Printable Target Containers for PDF / QP Export -->
     <div id="printable-report-card" class="hidden"></div>
     <div id="printable-question-paper" class="hidden"></div>
 
-    <!-- Download Question Paper Modal -->
+    <!-- Question Paper Modal -->
     <div id="qp-download-modal" class="modal-overlay hidden">
         <div class="modal-box">
             <button type="button" class="close-btn" id="close-qp-modal-btn">&times;</button>
@@ -765,12 +772,14 @@
         </div>
     </div>
 
+    <!-- CA Configuration Modal -->
     <div id="ca-modal" class="modal-overlay hidden">
         <div class="modal-box modal-box-xlarge">
             <button type="button" class="close-btn" id="close-ca-modal-btn">&times;</button>
             <div>
                 <h2 style="font-size: 1.3rem;">CA Configuration &amp; Question Paper Authoring</h2>
-                <p style="font-size:0.85rem; color:var(--muted);">Define CA title, sets, rules, and question markup.</p>
+                <p style="font-size:0.85rem; color:var(--muted);">Define CA title, instructions, selection rules, timer
+                    duration, sets, and question markup.</p>
             </div>
 
             <div class="modal-body-scroll">
@@ -782,6 +791,34 @@
                     <div class="form-group">
                         <label for="cfg-ca-name">CA Display Title</label>
                         <input type="text" id="cfg-ca-name" placeholder="Continuous Assessment 1 - Java Fundamentals" />
+                    </div>
+                </div>
+
+                <div class="two-col-inputs">
+                    <div class="form-group">
+                        <label for="cfg-ca-req-count">Questions Students Must Select</label>
+                        <input type="number" id="cfg-ca-req-count" min="1" max="10" value="1"
+                            placeholder="e.g., 1 or 2" />
+                        <small style="color: var(--muted);">Controls question limit and upload slots.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="cfg-ca-timer-min">Timer Duration (in Minutes)</label>
+                        <input type="number" id="cfg-ca-timer-min" min="5" max="180" value="40"
+                            placeholder="e.g., 40" />
+                        <small style="color: var(--muted);">Auto-submits and downloads code when time expires.</small>
+                    </div>
+                </div>
+
+                <div class="creator-section">
+                    <h4>Instructions Shown to Students</h4>
+                    <p style="font-size:0.8rem; color:var(--muted); margin-bottom:0.5rem;">Update the guidelines, rules,
+                        and timings visible to students on their portal.</p>
+                    <div class="editor-toolbar">
+                        <button type="button" onclick="formatEditor('bold', this)"><b>B</b></button>
+                        <button type="button" onclick="formatEditor('italic', this)"><i>I</i></button>
+                        <button type="button" onclick="formatEditor('insertUnorderedList', this)">&bull; List</button>
+                    </div>
+                    <div id="cfg-ca-instructions" class="rich-editor" contenteditable="true" style="min-height: 120px;">
                     </div>
                 </div>
 
@@ -808,6 +845,7 @@
         </div>
     </div>
 
+    <!-- Student Allocated Questions Modal -->
     <div id="questions-modal" class="modal-overlay hidden">
         <div class="modal-box modal-box-large">
             <button type="button" class="close-btn" id="close-qmodal-btn">&times;</button>
@@ -819,12 +857,13 @@
         </div>
     </div>
 
+    <!-- Viva & Demo Marks Modal -->
     <div id="viva-modal" class="modal-overlay hidden">
         <div class="modal-box">
             <button type="button" class="close-btn" id="close-viva-modal-btn">&times;</button>
             <h2 style="margin-bottom: 0.3rem;">Viva &amp; Demonstration Marks</h2>
             <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 1.2rem;">Record marks directly into the
-                selected CA sheet.</p>
+                selected CA registry.</p>
 
             <div class="form-group">
                 <label for="student-select">Select Student (Reg No - Name)</label>
@@ -847,7 +886,7 @@
             </div>
 
             <button type="button" id="save-marks-btn" style="width: 100%; justify-content: center;">Save Marks to
-                Sheet</button>
+                Cloud</button>
             <div id="modal-status-msg" class="status-msg"></div>
         </div>
     </div>
